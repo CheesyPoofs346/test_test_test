@@ -1,6 +1,7 @@
 #!/bin/bash
-# openrouter.sh - AI API interface (OpenRouter or Google Gemini)
-# Supports OpenRouter (legacy) and Google Gemini (when OPENROUTER_MODEL starts with "google/")
+# openrouter.sh - AI API interface (OpenRouter, Google Gemini, NVIDIA Integrate, Ollama)
+# Supports OpenRouter (legacy), Google Gemini (when OPENROUTER_MODEL starts with "google/"),
+# NVIDIA Integrate (when OPENROUTER_MODEL starts with "nvidia/"), and Ollama (when OPENROUTER_MODEL starts with "ollama/")
 # Requires: curl, jq
 
 if [[ "${BASH_SOURCE[0]}" != "$0" ]]; then
@@ -15,13 +16,24 @@ source "$(dirname "${BASH_SOURCE[0]}")/utils.sh"
 # API configuration
 # Primary (legacy) key: OPENROUTER_API_KEY (kept for backward compatibility)
 OPENROUTER_API_KEY="${OPENROUTER_API_KEY:-}"
-# Google/Gemini keys (preferred when using google/* models)
+# Google/Gemini keys (used when OPENROUTER_MODEL starts with "google/")
 GEMINI_API_KEY="${GEMINI_API_KEY:-}"
 GOOGLE_API_KEY="${GOOGLE_API_KEY:-}"
 
 # OpenRouter compatibility defaults
 OPENROUTER_API_URL="https://openrouter.ai/api/v1/chat/completions"
 OPENROUTER_MODEL="${OPENROUTER_MODEL:-anthropic/claude-3.5-sonnet}"
+
+# Ollama local server (optional)
+# Example: OLLAMA_URL="http://192.168.1.100:11434" or http://host.docker.internal:11434
+OLLAMA_URL="${OLLAMA_URL:-}"
+OLLAMA_API_KEY="${OLLAMA_API_KEY:-}"
+
+# NVIDIA Integrate API (optional)
+# Example: NVIDIA_API_KEY="sk-..." and set OPENROUTER_MODEL to "nvidia/google/gemma-3n-e4b-it"
+NVIDIA_API_KEY="${NVIDIA_API_KEY:-}"
+# Toggle streaming when using NVIDIA Integrate (true/false)
+NVIDIA_STREAM="${NVIDIA_STREAM:-false}"
 
 # System prompt for README extraction (adapted from PowerShell version)
 # Use a heredoc to populate SYSTEM_PROMPT. read -d '' returns 1 at EOF when
@@ -71,6 +83,23 @@ EOF
 # Check if API key is configured
 check_openrouter_config() {
     # If the configured model is a Google/Gemini model, require GEMINI/GOOGLE API key
+    if [[ "$OPENROUTER_MODEL" == ollama/* ]]; then
+        if [[ -z "$OLLAMA_URL" ]]; then
+            log_error "Ollama URL not configured (set OLLAMA_URL)"
+            return 1
+        fi
+        return 0
+    fi
+
+    if [[ "$OPENROUTER_MODEL" == nvidia/* ]]; then
+        if [[ -z "${NVIDIA_API_KEY:-}" ]]; then
+            log_error "NVIDIA API key not configured (set NVIDIA_API_KEY)"
+            log_info "Set NVIDIA_API_KEY environment variable or in config.conf"
+            return 1
+        fi
+        return 0
+    fi
+
     if [[ "$OPENROUTER_MODEL" == google/* ]]; then
         if [[ -z "${GEMINI_API_KEY:-}${GOOGLE_API_KEY:-}${OPENROUTER_API_KEY:-}" ]]; then
             log_error "Google/Gemini API key not configured"
@@ -153,7 +182,7 @@ invoke_readme_extraction() {
     return 0
 }
 
-# Provider-aware payload sender: supports OpenRouter (legacy) and Google Gemini
+# Provider-aware payload sender: supports OpenRouter (legacy), Google Gemini, NVIDIA Integrate, and Ollama
 send_payload_and_get_text() {
     local payload="$1"
 
@@ -188,6 +217,99 @@ send_payload_and_get_text() {
         content=$(echo "$response" | jq -r '(.candidates[0].content // .output[0].content // .candidates[0].message.content[0].text // .candidates[0].message.content[].text // "")' 2>/dev/null)
         if [[ -z "$content" ]]; then
             log_error "Failed to parse Gemini response"
+            log_debug "Response: $response"
+            return 1
+        fi
+
+        echo "$content"
+        return 0
+    fi
+
+    if [[ "$OPENROUTER_MODEL" == nvidia/* ]]; then
+        # NVIDIA Integrate API path (supports streaming and non-streaming)
+        local model_name="${OPENROUTER_MODEL#nvidia/}"
+        local key="${NVIDIA_API_KEY:-}"
+        if [[ -z "$key" ]]; then
+            log_error "Missing NVIDIA API key"
+            return 1
+        fi
+
+        # Combine messages into a single prompt text
+        local combined
+        combined=$(echo "$payload" | jq -r '[.messages[] | (.role + ": " + .content)] | join("\n\n")')
+
+        # Build payload similar to the provided Python example
+        local stream_flag=false
+        if [[ "${NVIDIA_STREAM,,}" == "true" ]]; then
+            stream_flag=true
+        fi
+
+        local nvidia_payload
+        nvidia_payload=$(jq -n --arg model "$model_name" --arg content "$combined" --argjson stream $stream_flag '{model: $model, messages: [{role: "user", content: $content}], max_tokens: 512, temperature: 0.20, top_p: 0.70, frequency_penalty: 0.00, presence_penalty: 0.00, stream: $stream}')
+
+        local url="https://integrate.api.nvidia.com/v1/chat/completions"
+
+        if [[ "$stream_flag" == true ]]; then
+            # Stream SSE lines and print the JSON content payloads (data: ...)
+            curl -s -N -X POST "$url" \
+                -H "Authorization: Bearer $key" \
+                -H "Accept: text/event-stream" \
+                -H "Content-Type: application/json" \
+                -d "$nvidia_payload" | while IFS= read -r line; do
+                    if [[ -n "$line" ]]; then
+                        # Strip leading "data: " if present
+                        case "$line" in
+                            data:*) echo "${line#data: }" ;; 
+                            *) echo "$line" ;;
+                        esac
+                    fi
+                done
+            return 0
+        else
+            local response
+            response=$(curl -s -X POST "$url" -H "Authorization: Bearer $key" -H "Accept: application/json" -H "Content-Type: application/json" -d "$nvidia_payload")
+            if [[ $? -ne 0 ]]; then
+                log_error "Failed to call NVIDIA Integrate API"
+                return 1
+            fi
+
+            # Try common response fields to extract text
+            local content
+            content=$(echo "$response" | jq -r '(.choices[0].message.content // .choices[0].content // .output[0].content // .generated_text // "")' 2>/dev/null)
+            if [[ -z "$content" ]]; then
+                log_error "Failed to parse NVIDIA Integrate response"
+                log_debug "Response: $response"
+                return 1
+            fi
+
+            echo "$content"
+            return 0
+        fi
+    fi
+
+    if [[ "$OPENROUTER_MODEL" == ollama/* ]]; then
+        # Ollama local server path
+        local model_name="${OPENROUTER_MODEL#ollama/}"
+        local key="${OLLAMA_API_KEY:-}"
+        local combined
+        combined=$(echo "$payload" | jq -r '[.messages[] | (.role + ": " + .content)] | join("\n\n")')
+
+        local url="${OLLAMA_URL%/}/api/generate"
+        local ollama_payload
+        ollama_payload=$(jq -n --arg model "$model_name" --arg prompt "$combined" '{model: $model, prompt: $prompt, temperature: 0.1, max_tokens: 4000}')
+
+        local response
+        response=$(curl -s -X POST "$url" -H "Content-Type: application/json" -d "$ollama_payload")
+        if [[ $? -ne 0 ]]; then
+            log_error "Failed to call Ollama at $url"
+            return 1
+        fi
+
+        # Try common fields returned by different Ollama versions
+        local content
+        content=$(echo "$response" | jq -r '.text // .result[0].content // .choices[0].content // .choices[0].text // .output // .generated_text // ""' 2>/dev/null)
+        if [[ -z "$content" ]]; then
+            log_error "Failed to parse Ollama response"
             log_debug "Response: $response"
             return 1
         fi

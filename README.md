@@ -6,7 +6,7 @@ A comprehensive, modular security remediation engine for CyberPatriot Linux comp
 
 - **Modular Architecture**: 22 independent security modules that can be enabled/disabled
 - **AI-Powered README Parsing**: Uses OpenRouter AI to extract structured information from README files
- - **AI-Powered README Parsing**: Uses an AI API (Google Gemini preferred, OpenRouter supported) to extract structured information from README files
+- **AI-Powered README Parsing**: Uses an AI API (NVIDIA Integrate preferred, Google Gemini or OpenRouter supported) to extract structured information from README files
 - **Automated Security Checks**: Comprehensive vulnerability scanning and remediation
 - **Service Hardening**: Comprehensive hardening for SSH, FTP, Apache, NGINX, PostgreSQL, MySQL, Samba, and PHP
 - **Score Tracking**: Logs all remediation actions for scoring verification
@@ -70,12 +70,12 @@ sudo apt-get install curl jq
 
 ### 2. Configuration
 
-Edit `config.conf` and set your AI API key. For Google Gemini set `GEMINI_API_KEY` or `GOOGLE_API_KEY`.
+# Edit `config.conf` and set your AI API key. For NVIDIA Integrate set `NVIDIA_API_KEY`.
 
 ```bash
-# Example: GEMINI_API_KEY="ya29.your_google_api_key"
-GEMINI_API_KEY="your_api_key_here"
-OPENROUTER_MODEL="google/gemini-3-pro-preview"
+# Example: NVIDIA_API_KEY="sk-your_key_here"
+NVIDIA_API_KEY="your_api_key_here"
+OPENROUTER_MODEL="nvidia/google/gemma-3n-e4b-it"
 ```
 
 ### 3. Usage
@@ -143,7 +143,7 @@ This order is defined in `cp-engine.sh` (lines 23-46) and ensures that foundatio
 ### 2. **README Parser** (Core Module)
 - Automatically finds README.html files
 - Strips HTML content and extracts plain text
-- Uses an AI API (Google Gemini preferred, OpenRouter supported) to parse structured information
+- Uses an AI API (NVIDIA Integrate preferred; Google Gemini, OpenRouter, and Ollama supported) to parse structured information
 - Provides data to all other modules
 
 ### 3. **Forensics Questions**
@@ -384,10 +384,10 @@ All modules in this engine are designed to work with both distributions:
 
 ### API Settings
 ```bash
-GEMINI_API_KEY=""              # Your Google/Gemini API key (preferred)
-# For legacy OpenRouter usage you may still set OPENROUTER_API_KEY
+NVIDIA_API_KEY=""              # Your NVIDIA Integrate API key (preferred)
+# For legacy OpenRouter usage you may still set OPENROUTER_API_KEY or Google/Gemini keys
 OPENROUTER_API_KEY=""
-OPENROUTER_MODEL=""            # AI model to use (prefix with "google/" to use Gemini)
+OPENROUTER_MODEL="nvidia/google/gemma-3n-e4b-it"  # AI model to use (prefix with "nvidia/" for NVIDIA Integrate)
 ```
 
 ### Logging
@@ -517,13 +517,35 @@ All remediation actions are logged to the score file (default: `/var/log/cyberpa
 ## Troubleshooting
 
 ### AI API Issues
+
+#### Quick host Ollama checklist
+- **Find host IP:** On Windows run `ipconfig` and pick the adapter IP reachable from the VM.
+- **Ensure Ollama is reachable:** Bind Ollama to an interface reachable by the VM or use host networking / NAT port forwarding.
+- **Firewall:** Open `11434` on the host if needed (Windows Defender firewall).
+- **Test from VM:** `curl -s "$OLLAMA_URL/"` or run `OPENROUTER_MODEL="ollama/<model>" OLLAMA_URL="http://<host-ip>:11434" sudo ./cp-engine.sh -t`.
+
 ```bash
 # Test API connection
 sudo ./cp-engine.sh -t
 
 # Check API key in config.conf
 cat config.conf | grep OPENROUTER_API_KEY
+
+# Example: test against a host Ollama server from inside a VM
+# OPENROUTER_MODEL="ollama/llama2" OLLAMA_URL="http://<host-ip>:11434" sudo ./cp-engine.sh -t
+
+### Using NVIDIA Integrate locally or via API
+- **Set key:** `NVIDIA_API_KEY="<your_key>"` in `config.conf` or export it in your shell.
+- **Model name:** prefix with `nvidia/` (for example `nvidia/google/gemma-3n-e4b-it`).
+- **Streaming:** enable by setting `NVIDIA_STREAM="true"` (optional).
+- **Test command:**
 ```
+OPENROUTER_MODEL="nvidia/google/gemma-3n-e4b-it" NVIDIA_API_KEY="<your_key>" sudo ./cp-engine.sh -t
+```
+This will use the NVIDIA Integrate endpoint `https://integrate.api.nvidia.com/v1/chat/completions`.
+```
+
+If you're running an Ollama server on your host machine and the engine runs inside a VM, set `OPENROUTER_MODEL` to use the `ollama/` prefix (for example `ollama/llama2`) and point `OLLAMA_URL` to the host-accessible address (for example `http://192.168.1.100:11434` or `http://host.docker.internal:11434`). Ensure Ollama is reachable from the VM (bind Ollama to an address reachable by the VM or use host networking).
 
 ### Module Not Running
 ```bash
