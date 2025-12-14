@@ -303,7 +303,7 @@ Please analyze these services and recommend which ones should be stopped/disable
             "max_tokens": 3000
         }')
 
-    # Make API request (provider-aware helper handles NVIDIA Integrate, Google Gemini, OpenRouter, or Ollama)
+    # Make API request (provider-aware helper handles NVIDIA Integrate, Google Gemini, or OpenRouter)
     local content
     content=$(send_payload_and_get_text "$payload") || {
         log_error "AI request failed"

@@ -143,7 +143,7 @@ This order is defined in `cp-engine.sh` (lines 23-46) and ensures that foundatio
 ### 2. **README Parser** (Core Module)
 - Automatically finds README.html files
 - Strips HTML content and extracts plain text
-- Uses an AI API (NVIDIA Integrate preferred; Google Gemini, OpenRouter, and Ollama supported) to parse structured information
+- Uses an AI API (NVIDIA Integrate preferred; Google Gemini and OpenRouter supported) to parse structured information
 - Provides data to all other modules
 
 ### 3. **Forensics Questions**
@@ -518,11 +518,6 @@ All remediation actions are logged to the score file (default: `/var/log/cyberpa
 
 ### AI API Issues
 
-#### Quick host Ollama checklist
-- **Find host IP:** On Windows run `ipconfig` and pick the adapter IP reachable from the VM.
-- **Ensure Ollama is reachable:** Bind Ollama to an interface reachable by the VM or use host networking / NAT port forwarding.
-- **Firewall:** Open `11434` on the host if needed (Windows Defender firewall).
-- **Test from VM:** `curl -s "$OLLAMA_URL/"` or run `OPENROUTER_MODEL="ollama/<model>" OLLAMA_URL="http://<host-ip>:11434" sudo ./cp-engine.sh -t`.
 
 ```bash
 # Test API connection
@@ -531,8 +526,7 @@ sudo ./cp-engine.sh -t
 # Check API key in config.conf
 cat config.conf | grep OPENROUTER_API_KEY
 
-# Example: test against a host Ollama server from inside a VM
-# OPENROUTER_MODEL="ollama/llama2" OLLAMA_URL="http://<host-ip>:11434" sudo ./cp-engine.sh -t
+
 
 ### Using NVIDIA Integrate locally or via API
 - **Set key:** `NVIDIA_API_KEY="<your_key>"` in `config.conf` or export it in your shell.
@@ -545,7 +539,7 @@ OPENROUTER_MODEL="nvidia/google/gemma-3n-e4b-it" NVIDIA_API_KEY="<your_key>" sud
 This will use the NVIDIA Integrate endpoint `https://integrate.api.nvidia.com/v1/chat/completions`.
 ```
 
-If you're running an Ollama server on your host machine and the engine runs inside a VM, set `OPENROUTER_MODEL` to use the `ollama/` prefix (for example `ollama/llama2`) and point `OLLAMA_URL` to the host-accessible address (for example `http://192.168.1.100:11434` or `http://host.docker.internal:11434`). Ensure Ollama is reachable from the VM (bind Ollama to an address reachable by the VM or use host networking).
+
 
 ### Module Not Running
 ```bash

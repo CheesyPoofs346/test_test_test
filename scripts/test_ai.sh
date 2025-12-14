@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Simple helper to test AI API connectivity (NVIDIA Integrate, Gemini, OpenRouter, or Ollama)
+# Simple helper to test AI API connectivity (NVIDIA Integrate, Gemini, OpenRouter)
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/../lib/openrouter.sh"

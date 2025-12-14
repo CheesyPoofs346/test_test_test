@@ -1,7 +1,7 @@
 #!/bin/bash
-# openrouter.sh - AI API interface (OpenRouter, Google Gemini, NVIDIA Integrate, Ollama)
+# openrouter.sh - AI API interface (OpenRouter, Google Gemini, NVIDIA Integrate)
 # Supports OpenRouter (legacy), Google Gemini (when OPENROUTER_MODEL starts with "google/"),
-# NVIDIA Integrate (when OPENROUTER_MODEL starts with "nvidia/"), and Ollama (when OPENROUTER_MODEL starts with "ollama/")
+# and NVIDIA Integrate (when OPENROUTER_MODEL starts with "nvidia/")
 # Requires: curl, jq
 
 if [[ "${BASH_SOURCE[0]}" != "$0" ]]; then
@@ -24,10 +24,6 @@ GOOGLE_API_KEY="${GOOGLE_API_KEY:-}"
 OPENROUTER_API_URL="https://openrouter.ai/api/v1/chat/completions"
 OPENROUTER_MODEL="${OPENROUTER_MODEL:-anthropic/claude-3.5-sonnet}"
 
-# Ollama local server (optional)
-# Example: OLLAMA_URL="http://192.168.1.100:11434" or http://host.docker.internal:11434
-OLLAMA_URL="${OLLAMA_URL:-}"
-OLLAMA_API_KEY="${OLLAMA_API_KEY:-}"
 
 # NVIDIA Integrate API (optional)
 # Example: NVIDIA_API_KEY="sk-..." and set OPENROUTER_MODEL to "nvidia/google/gemma-3n-e4b-it"
@@ -83,13 +79,6 @@ EOF
 # Check if API key is configured
 check_openrouter_config() {
     # If the configured model is a Google/Gemini model, require GEMINI/GOOGLE API key
-    if [[ "$OPENROUTER_MODEL" == ollama/* ]]; then
-        if [[ -z "$OLLAMA_URL" ]]; then
-            log_error "Ollama URL not configured (set OLLAMA_URL)"
-            return 1
-        fi
-        return 0
-    fi
 
     if [[ "$OPENROUTER_MODEL" == nvidia/* ]]; then
         if [[ -z "${NVIDIA_API_KEY:-}" ]]; then
@@ -182,7 +171,7 @@ invoke_readme_extraction() {
     return 0
 }
 
-# Provider-aware payload sender: supports OpenRouter (legacy), Google Gemini, NVIDIA Integrate, and Ollama
+# Provider-aware payload sender: supports OpenRouter (legacy), Google Gemini, and NVIDIA Integrate
 send_payload_and_get_text() {
     local payload="$1"
 
@@ -287,35 +276,6 @@ send_payload_and_get_text() {
         fi
     fi
 
-    if [[ "$OPENROUTER_MODEL" == ollama/* ]]; then
-        # Ollama local server path
-        local model_name="${OPENROUTER_MODEL#ollama/}"
-        local key="${OLLAMA_API_KEY:-}"
-        local combined
-        combined=$(echo "$payload" | jq -r '[.messages[] | (.role + ": " + .content)] | join("\n\n")')
-
-        local url="${OLLAMA_URL%/}/api/generate"
-        local ollama_payload
-        ollama_payload=$(jq -n --arg model "$model_name" --arg prompt "$combined" '{model: $model, prompt: $prompt, temperature: 0.1, max_tokens: 4000}')
-
-        local response
-        response=$(curl -s -X POST "$url" -H "Content-Type: application/json" -d "$ollama_payload")
-        if [[ $? -ne 0 ]]; then
-            log_error "Failed to call Ollama at $url"
-            return 1
-        fi
-
-        # Try common fields returned by different Ollama versions
-        local content
-        content=$(echo "$response" | jq -r '.text // .result[0].content // .choices[0].content // .choices[0].text // .output // .generated_text // ""' 2>/dev/null)
-        if [[ -z "$content" ]]; then
-            log_error "Failed to parse Ollama response"
-            log_debug "Response: $response"
-            return 1
-        fi
-
-        echo "$content"
-        return 0
     else
         # Legacy OpenRouter path (kept for backward compatibility)
         local response
