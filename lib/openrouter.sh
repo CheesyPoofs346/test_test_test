@@ -78,6 +78,18 @@ EOF
 
 # Check if API key is configured
 check_openrouter_config() {
+    # Ensure required CLI tools are available
+    if ! command_exists jq; then
+        log_error "Required tool missing: jq"
+        log_info "Install with: sudo apt-get update && sudo apt-get install -y jq"
+        return 1
+    fi
+    if ! command_exists curl; then
+        log_error "Required tool missing: curl"
+        log_info "Install with: sudo apt-get update && sudo apt-get install -y curl"
+        return 1
+    fi
+
     # If the configured model is a Google/Gemini model, require GEMINI/GOOGLE API key
 
     if [[ "$OPENROUTER_MODEL" == nvidia/* ]]; then
@@ -212,9 +224,7 @@ send_payload_and_get_text() {
 
         echo "$content"
         return 0
-    fi
-
-    if [[ "$OPENROUTER_MODEL" == nvidia/* ]]; then
+    elif [[ "$OPENROUTER_MODEL" == nvidia/* ]]; then
         # NVIDIA Integrate API path (supports streaming and non-streaming)
         local model_name="${OPENROUTER_MODEL#nvidia/}"
         local key="${NVIDIA_API_KEY:-}"
@@ -274,7 +284,6 @@ send_payload_and_get_text() {
             echo "$content"
             return 0
         fi
-    fi
 
     else
         # Legacy OpenRouter path (kept for backward compatibility)
